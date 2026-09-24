@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Encrypt GitHub PAT</title>
+    <style>
+      :root {
+        --bg: #08111d;
+        --panel: #0d1b2a;
+        --panel-alt: #132536;
+        --text: #eaf6ff;
+        --muted: #9eb8d1;
+        --accent: #74c0fc;
+        --danger: #ff6b6b;
+        --success: #69db7c;
+        --border: rgba(148, 180, 212, 0.25);
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: "Segoe UI", Tahoma, sans-serif;
+        background: radial-gradient(circle at top, #0e1d2e, #071420 52%, #040d16);
+        color: var(--text);
+        padding: 1.5rem;
+      }
+
+      .container {
+        max-width: 980px;
+        margin: 0 auto;
+        background: rgba(13, 27, 42, 0.96);
+        border: 1px solid var(--border);
+        border-radius: 24px;
+        padding: 1.5rem;
+        box-shadow: 0 28px 60px rgba(0, 0, 0, 0.3);
+      }
+
+      h1, h2 { margin-top: 0; }
+
+      p, li { color: var(--muted); line-height: 1.6; }
+
+      label {
+        display: block;
+        margin: 1rem 0 0.5rem;
+        font-weight: 600;
+      }
+
+      input,
+      textarea,
+      button {
+        width: 100%;
+        font: inherit;
+      }
+
+      input,
+      textarea {
+        background: rgba(8, 18, 29, 0.9);
+        color: var(--text);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 0.8rem 0.9rem;
+      }
+
+      textarea {
+        min-height: 180px;
+        resize: vertical;
+      }
+
+      button {
+        margin-top: 1rem;
+        padding: 0.8rem 1rem;
+        border: 0;
+        border-radius: 12px;
+        background: linear-gradient(135deg, var(--accent), #4dabf7);
+        color: #06141d;
+        font-weight: 800;
+        cursor: pointer;
+      }
+
+      .warning {
+        padding: 0.9rem 1rem;
+        border: 1px solid rgba(255, 107, 107, 0.32);
+        border-radius: 12px;
+        background: rgba(255, 107, 107, 0.08);
+        color: #ffd7d7;
+      }
+
+      .result-box {
+        margin-top: 1.5rem;
+        border-top: 1px solid var(--border);
+        padding-top: 1rem;
+      }
+
+      .success {
+        color: var(--success);
+        font-weight: 700;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>Encrypt GitHub PAT for the Streak Manager</h1>
+      <p class="warning">
+        This tool runs entirely in your browser. The PAT is processed locally and is never uploaded.
+        The password is never stored. If the password is lost, the encrypted PAT cannot be recovered.
+      </p>
+
+      <label for="patInput">GitHub PAT</label>
+      <textarea id="patInput" placeholder="Paste your dedicated GitHub PAT here"></textarea>
+
+      <label for="passwordInput">Password</label>
+      <input id="passwordInput" type="password" placeholder="Choose a strong password" />
+
+      <label for="iterationsInput">PBKDF2 iterations</label>
+      <input id="iterationsInput" type="number" min="600000" value="600000" />
+
+      <button id="encryptBtn" type="button">Generate encrypted config</button>
+
+      <div class="result-box">
+        <h2>Paste this into app.js</h2>
+        <div id="status" class="success">Waiting for input.</div>
+        <textarea id="outputBox" readonly placeholder="Encrypted config will appear here"></textarea>
+      </div>
+    </div>
+
+    <script>
+      const textEncoder = new TextEncoder();
+      const textDecoder = new TextDecoder();
+
+      async function deriveKey(password, saltBytes, iterations) {
+        const imported = await crypto.subtle.importKey(
+          "raw",
+          textEncoder.encode(password),
+          "PBKDF2",
+          false,
+          ["deriveKey"]
+        );
+
+        return crypto.subtle.deriveKey(
+          {
+            name: "PBKDF2",
+            salt: saltBytes,
+            iterations,
+            hash: "SHA-256"
+          },
+          imported,
+          { name: "AES-GCM", length: 256 },
+          false,
+          ["encrypt", "decrypt"]
+        );
+      }
+
+      function bytesToBase64(bytes) {
+        let binary = "";
+        bytes.forEach((byte) => {
+          binary += String.fromCharCode(byte);
+        });
+        return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+      }
+
+      function base64ToBytes(value) {
+        const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
+        const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
+        const binary = atob(padded);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i += 1) {
+          bytes[i] = binary.charCodeAt(i);
+        }
+        return bytes;
+      }
+
+      document.getElementById("encryptBtn").addEventListener("click", async () => {
+        const pat = document.getElementById("patInput").value.trim();
+        const password = document.getElementById("passwordInput").value;
+        const iterations = Number(document.getElementById("iterationsInput").value) || 600000;
+
+        if (!pat || !password) {
+          document.getElementById("status").textContent = "Enter both the PAT and the password.";
+          return;
+        }
+
+        const salt = crypto.getRandomValues(new Uint8Array(16));
+        const iv = crypto.getRandomValues(new Uint8Array(12));
+        const key = await deriveKey(password, salt, iterations);
+        const encrypted = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, textEncoder.encode(pat));
+
+        const encryptedBase64 = bytesToBase64(new Uint8Array(encrypted));
+        const saltBase64 = bytesToBase64(salt);
+        const ivBase64 = bytesToBase64(iv);
+
+        const config = `const SECURITY_CONFIG = {
+  encryptedPAT: "${encryptedBase64}",
+  salt: "${saltBase64}",
+  iv: "${ivBase64}",
+  iterations: ${iterations}
+};`;
+
+        document.getElementById("outputBox").value = config;
+        document.getElementById("status").textContent = "Encrypted config generated locally. Copy and paste it into app.js.";
+      });
+    </script>
+  </body>
+</html>
