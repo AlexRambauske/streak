@@ -285,14 +285,12 @@ async function saveDataToGist(payload, statusText, signal) {
   const targetGistId = GIST_CONFIG.gistId;
   const targetFilename = GIST_CONFIG.filename;
   const targetSessionId = state.sessionId;
-  const targetEtag = state.gistEtag;
   const headers = {
     Authorization: `Bearer ${state.plainPat}`,
     Accept: "application/vnd.github+json",
     "X-GitHub-Api-Version": "2022-11-28",
     "Content-Type": "application/json"
   };
-  if (targetEtag) headers["If-Match"] = targetEtag;
 
   let response;
   for (let attempt = 0; attempt < 3; attempt += 1) {
